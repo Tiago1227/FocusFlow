@@ -34,7 +34,7 @@ Este é um projeto de aplicativo móvel para gerenciamento de tarefas (To-Do Lis
 
 1.  **Clone o repositório:**
     ```bash
-    git clone [https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git](https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git)
+    git clone https://github.com/Tiago1227/FocusFlow
     ```
 
 2.  **Entre na pasta do projeto:**
