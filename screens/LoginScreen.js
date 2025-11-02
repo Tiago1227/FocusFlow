@@ -1,0 +1,200 @@
+import React, { use, useState } from "react";
+import {
+    View,
+    Text,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    Image,
+    Alert,
+    ScrollView,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import CustomCheckbox from '../components/CustomCheckbox';
+import Logo from '../assets/images/logo.png';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
+
+
+const LoginScreen = () => {
+    const navigation = useNavigation();
+    const { login } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [rememberMe, setRememberMe] = useState(false);
+    const [loading, setLoading] = useState(false); 
+
+    const handleLogin = async () => {
+        if (!email || !password) {
+            Alert.alert('Erro de Login', 'Por favor, preencha todos os campos.');
+            return;
+        }
+
+        setLoading(true); 
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Simula 1.5s de requisição
+
+            // Verifica credenciais mock (apenas para teste)
+            if (email === 'teste@email.com' && password === '123456') {
+                login(); // 'replace' para não voltar para o login
+            } else {
+                Alert.alert('Erro de Login', 'E-mail ou senha inválidos.');
+            }
+        } catch (error) {
+            Alert.alert('Erro', 'Ocorreu um erro ao tentar fazer login. Tente novamente.');
+            console.error('Erro de login:', error);
+        } finally {
+            setLoading(false); // Desativa o indicador de carregamento
+        }
+    };
+
+    return (
+        <ScrollView contentContainerStyle={styles.container}>
+            <Image source={Logo} style={styles.logo} resizeMode="contain" />
+            <Text style={styles.title}>Bem-vindo de volta!</Text>
+
+            {/* Campo de E-mail/Usuário */}
+            <TextInput
+                style={styles.input}
+                placeholder="E-mail"
+                placeholderTextColor="#999"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+            />
+
+            {/* Campo de Senha */}
+            <TextInput
+                style={styles.input}
+                placeholder="Senha"
+                placeholderTextColor="#999"
+                secureTextEntry 
+                value={password}
+                onChangeText={setPassword}
+            />
+
+            {/* Opções adicionais */}
+            <View style={styles.optionsContainer}>
+                <CustomCheckbox
+                    label="Lembrar-me"
+                    isChecked={rememberMe}
+                    onPress={() => setRememberMe(!rememberMe)}
+                />
+            </View>
+
+            {/* Botão de Login */}
+            <TouchableOpacity
+                style={styles.loginButton} 
+                onPress={handleLogin}
+                disabled={loading}
+            >
+                <LinearGradient
+                    colors={['#8C4DD5', '#3CB0E1']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.gradient, loading && styles.buttonDisabled]}
+                >
+                    <Text style={styles.loginButtonText}>
+                        {loading ? 'Entrando...' : 'Entrar'}
+                    </Text>
+                </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Botão de Cadastrar-se */}
+            <TouchableOpacity onPress={() => navigation.navigate('Cadastro')}>
+                <Text style={styles.registerText}>Não tem uma conta? <Text style={styles.registerLink}>Cadastre-se</Text></Text>
+            </TouchableOpacity>
+        </ScrollView>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flexGrow: 1, 
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: '#F7F9FC',
+    },
+    logo: {
+        width: 150,
+        height: 150,
+        marginBottom: 30,
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: '#333',
+        marginBottom: 40,
+    },
+    input: {
+        width: '100%',
+        height: 50,
+        backgroundColor: '#FFF',
+        borderRadius: 10,
+        paddingHorizontal: 15,
+        marginBottom: 15,
+        fontSize: 16,
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+        shadowColor: '#000', 
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    optionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%',
+        marginBottom: 20,
+    },
+    forgotPasswordText: {
+        color: '#8C4DD5',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    loginButton: {
+        width: '100%',
+        height: 50,
+        borderRadius: 10, 
+        overflow: 'hidden', 
+        marginBottom: 20,
+    },
+    gradient: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 10,
+        shadowColor: '#8C4DD5',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 5,
+        elevation: 5,
+    },
+    buttonDisabled: {
+        opacity: 0.6,
+    },
+    loginButtonDisabled: {
+        backgroundColor: '#BDBDBD', 
+        shadowColor: 'transparent',
+    },
+    loginButtonText: {
+        color: '#FFF',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    registerText: {
+        color: '#555',
+        fontSize: 14,
+    },
+    registerLink: {
+        color: '#3CB0E1', 
+        fontWeight: 'bold',
+    },
+});
+
+export default LoginScreen;
