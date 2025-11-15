@@ -11,12 +11,16 @@ import {
   Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { v4 as uuidv4 } from 'uuid'; 
+import { v4 as uuidv4 } from 'uuid';
+import { db } from '../config/firebaseConfig'; // Nosso banco de dados
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; // Funções do Firestore
+import { useAuth } from '../context/AuthContext'; // Para pegar o ID do usuário
 
 const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const inputRef = useRef(null); 
+  const inputRef = useRef(null);
+  const { user } = useAuth(); // Pega o usuário logado
 
   useEffect(() => {
     if (visible) {
@@ -26,31 +30,40 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
     }
   }, [visible]);
 
-  const handleSave = () => {
-    if (!title) {
-      Alert.alert('Erro', 'O título da tarefa é obrigatório.');
+  const handleSave = async () => {
+    if (!title || !user) {
+      Alert.alert('Erro', 'O título é obrigatório e você deve estar logado.');
       return;
     }
 
-    const newTask = {
-      id: uuidv4(),
-      title,
-      description,
-      category: 'Pessoal', // Categoria Padrão
-      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      dueDate: new Date().toISOString().slice(0, 10), 
-      isCompleted: false,
-      isStarred: false,
-    };
+    try {
+      // Cria um novo documento na coleção "tasks"
+      await addDoc(collection(db, 'tasks'), {
+        userId: user.uid, // VINCULA A TAREFA AO USUÁRIO
+        title: title,
+        description: description,
+        category: 'Pessoal', // Categoria Padrão
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        dueDate: new Date().toISOString().slice(0, 10), // Data Padrão (Hoje)
+        isCompleted: false,
+        isStarred: false,
+        createdAt: serverTimestamp(), // Data de criação (para ordenar)
+      });
 
-    onSaveTask(newTask); 
-    resetAndClose();
+      // Não precisamos mais do onSaveTask(newTask), pois a HomeScreen
+      // vai ouvir o banco de dados em tempo real.
+      resetAndClose();
+
+    } catch (error) {
+      console.error("Erro ao adicionar tarefa: ", error);
+      Alert.alert('Erro', 'Não foi possível salvar sua tarefa.');
+    }
   };
 
   const resetAndClose = () => {
     setTitle('');
     setDescription('');
-    onClose(); 
+    onClose();
   };
 
   return (
@@ -115,11 +128,11 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'flex-end', 
+    justifyContent: 'flex-end',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)', 
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   content: {
     backgroundColor: '#FFF',
@@ -138,7 +151,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   inputDescription: {
-    backgroundColor: '#F0F0F0', 
+    backgroundColor: '#F0F0F0',
     borderRadius: 10,
     padding: 10,
     fontSize: 14,
@@ -168,10 +181,10 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     fontSize: 14,
     fontWeight: '500',
-    overflow: 'hidden', 
+    overflow: 'hidden',
   },
   saveButton: {
-    backgroundColor: '#8C4DD5', 
+    backgroundColor: '#8C4DD5',
     borderRadius: 25,
     width: 50,
     height: 50,

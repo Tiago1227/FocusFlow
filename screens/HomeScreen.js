@@ -5,120 +5,95 @@ import {
     StyleSheet,
     TouchableOpacity,
     Alert,
+    SectionList,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SwipeListView } from 'react-native-swipe-list-view';
-import { useNavigation, useDrawerStatus, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { db } from '../config/firebaseConfig';
+import { useAuth } from '../context/AuthContext';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Importe updateDoc e deleteDoc
 import QuickAddTask from '../components/QuickAddTask';
-
-const initialTasks = [
-    { id: '1', title: 'Finalizar relatório', description: 'Análise...', category: 'Trabalho', time: '10:00', dueDate: '2025-11-02', isCompleted: false, isStarred: false },
-    { id: '2', title: 'Fazer compras', description: 'Supermercado...', category: 'Pessoal', time: '14:00', dueDate: '2025-11-02', isCompleted: false, isStarred: true },
-    { id: '3', title: 'Agendar dentista', description: 'Consulta...', category: 'Saúde', time: '09:00', dueDate: '2025-11-01', isCompleted: true, isStarred: false },
-    { id: '4', title: 'Estudar React Native', description: 'SwipeList...', category: 'Estudo', time: '18:00', dueDate: '2025-11-03', isCompleted: false, isStarred: false },
-];
-
-const TaskItem = ({ task, onToggleComplete }) => {
-    const getCategoryColor = (category) => {
-        switch (category) {
-            case 'Trabalho': return '#3CB0E1';
-            case 'Pessoal': return '#8C4DD5';
-            case 'Estudo': return '#FFD700';
-            case 'Saúde': return '#FF6347';
-            default: return '#808080';
-        }
-    };
-
-    return (
-        <TouchableOpacity
-            activeOpacity={1}
-            style={styles.taskItemContainer}
-            onPress={() => onToggleComplete(task.id)}
-        >
-            <TouchableOpacity
-                style={[styles.taskCheckbox, task.isCompleted && styles.taskCheckboxCompleted]}
-                onPress={() => onToggleComplete(task.id)}
-            >
-                {task.isCompleted && <Feather name="check" size={18} color="#FFF" />}
-            </TouchableOpacity>
-
-            <View style={styles.taskContent}>
-                <Text
-                    style={[
-                        styles.taskTitle,
-                        task.isCompleted && styles.taskTitleCompleted,
-                    ]}
-                >
-                    {task.title}
-                </Text>
-                {task.description && (
-                    <Text style={styles.taskDescription}>{task.description}</Text>
-                )}
-            </View>
-
-            <View style={styles.taskMeta}>
-                {task.isStarred && <Feather name="star" size={16} color="#FFD700" style={{ marginBottom: 5 }} />}
-                <Text style={styles.taskTime}>{task.time}</Text>
-                <View style={[styles.taskCategory, { backgroundColor: getCategoryColor(task.category) }]}>
-                    <Text style={styles.taskCategoryText}>{task.category}</Text>
-                </View>
-            </View>
-        </TouchableOpacity>
-    );
-};
+import SwipeableTaskItem from '../components/SwipeableTaskItem';
 
 const HomeScreen = () => {
     const navigation = useNavigation();
     const route = useRoute();
-    const [tasks, setTasks] = useState(initialTasks);
+    const { user } = useAuth();
+    const [tasks, setTasks] = useState([]);
     const [isQuickAddVisible, setIsQuickAddVisible] = useState(false);
 
     useEffect(() => {
-        if (route.params?.savedTask) {
-            const { savedTask, mode } = route.params;
-
-            if (mode === 'create') {
-                // Adiciona a nova tarefa à lista
-                setTasks(prevTasks => [savedTask, ...prevTasks]);
-            } else if (mode === 'edit') {
-                // Atualiza a tarefa existente na lista
-                setTasks(prevTasks =>
-                    prevTasks.map(task =>
-                        task.id === savedTask.id ? savedTask : task
-                    )
-                );
-            }
-
-            navigation.setParams({ savedTask: null, mode: null });
+        console.log("HomeScreen: User UID:", user ? user.uid : "No user logged in");
+        if (!user) {
+            setTasks([]);
+            return;
         }
-    }, [route.params?.savedTask, navigation]);
 
-    const handleToggleComplete = (id) => {
-        setTasks((prevTasks) =>
-            prevTasks.map((task) =>
-                task.id === id ? { ...task, isCompleted: !task.isCompleted } : task
-            )
+        const tasksCollection = collection(db, 'tasks');
+        const q = query(
+            tasksCollection,
+            where("userId", "==", user.uid),
+            orderBy("createdAt", "desc")
         );
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const tasksFromDb = [];
+            querySnapshot.forEach((doc) => {
+                tasksFromDb.push({ id: doc.id, ...doc.data() });
+            });
+            console.log("Firestore Snapshot: Tarefas recebidas:", tasksFromDb);
+            setTasks(tasksFromDb);
+        });
+
+        return () => unsubscribe();
+
+    }, [user]);
+
+    console.log("HomeScreen: Estado atual das tarefas:", tasks);
+
+    // --- FUNÇÕES DE INTERAÇÃO COM O FIRESTORE ---
+
+    const handleToggleComplete = async (id) => {
+        if (!user) return;
+        try {
+            const taskRef = doc(db, 'tasks', id);
+            const currentTask = tasks.find(t => t.id === id);
+            if (currentTask) {
+                await updateDoc(taskRef, {
+                    isCompleted: !currentTask.isCompleted,
+                });
+                // O onSnapshot vai atualizar o estado tasks automaticamente
+            }
+        } catch (error) {
+            console.error("Erro ao alternar conclusão da tarefa:", error);
+            Alert.alert("Erro", "Não foi possível atualizar a tarefa.");
+        }
     };
 
-    const handleQuickSave = (newTask) => {
-        setTasks(prevTasks => [newTask, ...prevTasks]);
-    };
-
-    const handleStarTask = (id) => {
-        setTasks((prevTasks) =>
-            prevTasks.map((task) =>
-                task.id === id ? { ...task, isStarred: !task.isStarred } : task
-            )
-        );
+    const handleStarTask = async (id) => {
+        if (!user) return;
+        try {
+            const taskRef = doc(db, 'tasks', id);
+            const currentTask = tasks.find(t => t.id === id);
+            if (currentTask) {
+                await updateDoc(taskRef, {
+                    isStarred: !currentTask.isStarred,
+                });
+            }
+        } catch (error) {
+            console.error("Erro ao marcar/desmarcar tarefa como estrela:", error);
+            Alert.alert("Erro", "Não foi possível atualizar a tarefa.");
+        }
     };
 
     const handleEditTask = (task) => {
         navigation.navigate('AddEditTask', { taskToEdit: task });
     };
 
-    const handleDeleteTask = (id) => {
+    const handleDeleteTask = async (id) => {
+        if (!user) return;
         Alert.alert(
             'Excluir Tarefa',
             'Tem certeza que deseja excluir esta tarefa?',
@@ -127,37 +102,26 @@ const HomeScreen = () => {
                 {
                     text: 'Excluir',
                     style: 'destructive',
-                    onPress: () => {
-                        setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
+                    onPress: async () => {
+                        try {
+                            await deleteDoc(doc(db, 'tasks', id));
+                            // O onSnapshot vai remover a tarefa do estado automaticamente
+                        } catch (error) {
+                            console.error("Erro ao excluir tarefa:", error);
+                            Alert.alert("Erro", "Não foi possível excluir a tarefa.");
+                        }
                     },
                 },
             ]
         );
     };
 
-    // --- NOVO RENDERIZADOR PARA OS BOTÕES "ESCONDIDOS" ---
-    const renderHiddenItem = (data, rowMap) => (
-        <View style={styles.rowBack}>
-            <TouchableOpacity
-                style={[styles.backButton, styles.starButton]}
-                onPress={() => handleStarTask(data.item.id)}
-            >
-                <Feather name={data.item.isStarred ? "star" : "star"} size={24} color={data.item.isStarred ? "#FFD700" : "#FFF"} />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={[styles.backButton, styles.editButton]}
-                onPress={() => handleEditTask(data.item)}
-            >
-                <Feather name="edit-2" size={24} color="#FFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={[styles.backButton, styles.deleteButton]}
-                onPress={() => handleDeleteTask(data.item.id)}
-            >
-                <Feather name="trash-2" size={24} color="#FFF" />
-            </TouchableOpacity>
-        </View>
-    );
+    // --- FIM DAS FUNÇÕES DE INTERAÇÃO COM O FIRESTORE ---
+
+
+    // REMOVA O renderHiddenItem (ele não é mais necessário com SectionList)
+    // const renderHiddenItem = (data, rowMap) => ( ... );
+
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -176,9 +140,10 @@ const HomeScreen = () => {
         },
     ];
 
-    // Filtra seções vazias
     const sections = tasksData.filter(section => section.data.length > 0);
 
+    console.log("HomeScreen: tasksData completo:", tasksData);
+    console.log("HomeScreen: Seções filtradas para renderização:", sections);
     return (
         <View style={styles.fullScreenContainer}>
             <View style={styles.header}>
@@ -187,12 +152,12 @@ const HomeScreen = () => {
                     <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.drawerIcon}>
                         <Feather name="menu" size={24} color="#333" />
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Hoje</Text> 
+                    <Text style={styles.headerTitle}>Hoje</Text>
                     <View style={styles.headerIcons}>
                         <TouchableOpacity onPress={() => Alert.alert('Ação', 'Buscar tarefas')}>
                             <Feather name="search" size={24} color="#555" style={styles.headerIcon} />
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => navigation.navigate('Perfil')}> 
+                        <TouchableOpacity onPress={() => navigation.navigate('Perfil')}>
                             <Feather name="user" size={24} color="#555" style={styles.headerIcon} />
                         </TouchableOpacity>
                     </View>
@@ -207,31 +172,30 @@ const HomeScreen = () => {
                     })}
                 </Text>
             </View>
-            <SwipeListView
+            <SectionList
                 sections={sections}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
-                    <TaskItem task={item} onToggleComplete={handleToggleComplete} />
+                    // Agora usamos o novo SwipeableTaskItem
+                    <SwipeableTaskItem
+                        task={item}
+                        onToggleComplete={handleToggleComplete}
+                        onEdit={handleEditTask}
+                        onStar={handleStarTask}
+                        onDelete={handleDeleteTask}
+                    />
                 )}
-                renderHiddenItem={renderHiddenItem}
                 renderSectionHeader={({ section: { title } }) => (
                     <Text style={styles.sectionTitle}>{title}</Text>
                 )}
-                rightOpenValue={-225}
-                stopRightSwipe={-230} 
-                stopLeftSwipe={0}
-                previewRowKey={'1'} 
-                previewOpenValue={-40}
-                previewOpenDelay={3000}
-                useNativeDriver={false}
-                contentContainerStyle={styles.listContainer}
-                ListEmptyComponent={() => ( // O que mostrar se não houver tarefas
+                ListEmptyComponent={() => (
                     <View style={styles.emptyState}>
                         <Feather name="check-circle" size={60} color="#CCC" />
                         <Text style={styles.emptyStateText}>Nenhuma tarefa por aqui!</Text>
                         <Text style={styles.emptyStateTextSmall}>Que tal adicionar uma nova?</Text>
                     </View>
                 )}
+                contentContainerStyle={styles.listContainer}
             />
 
             {/* Botão Flutuante (igual) */}
@@ -251,7 +215,6 @@ const HomeScreen = () => {
             <QuickAddTask
                 visible={isQuickAddVisible}
                 onClose={() => setIsQuickAddVisible(false)}
-                onSaveTask={handleQuickSave}
             />
         </View>
     );
@@ -280,7 +243,7 @@ const styles = StyleSheet.create({
         fontSize: 32,
         fontWeight: 'bold',
         color: '#333',
-        flex: 1, 
+        flex: 1,
     },
     headerIcons: {
         flexDirection: 'row',
@@ -292,34 +255,34 @@ const styles = StyleSheet.create({
     headerSubtitle: {
         fontSize: 16,
         color: '#777',
-        marginTop: 5, 
+        marginTop: 5,
     },
 
     headerTopRow: {
         flexDirection: 'row',
-        alignItems: 'center', 
-        justifyContent: 'space-between', 
+        alignItems: 'center',
+        justifyContent: 'space-between',
         marginBottom: 5,
-        width: '100%', 
+        width: '100%',
     },
     drawerIcon: {
-        marginRight: 15, 
+        marginRight: 15,
     },
     listContainer: {
         paddingHorizontal: 20,
-        paddingBottom: 100, 
+        paddingBottom: 100,
     },
     sectionTitle: {
         fontSize: 20,
         fontWeight: 'bold',
         color: '#333',
         marginBottom: 15,
-        marginTop: 30, 
+        marginTop: 30,
     },
-    taskItemContainer: { 
+    taskItemContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF', 
+        backgroundColor: '#FFF',
         borderRadius: 15,
         padding: 15,
         marginBottom: 10,
@@ -329,7 +292,7 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 2,
     },
-    taskCheckbox: { 
+    taskCheckbox: {
         width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: '#8C4DD5',
         justifyContent: 'center', alignItems: 'center', marginRight: 15,
     },
@@ -344,8 +307,8 @@ const styles = StyleSheet.create({
     taskCategoryText: { fontSize: 11, color: '#FFF', fontWeight: 'bold' },
     fabContainer: {
         position: 'absolute',
-        bottom: 10, 
-        right: 25,  
+        bottom: 10,
+        right: 25,
         width: 60,
         height: 60,
         borderRadius: 30,
@@ -357,7 +320,7 @@ const styles = StyleSheet.create({
         elevation: 8,
     },
     fabGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    emptyState: { 
+    emptyState: {
         flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50,
     },
     emptyStateText: { fontSize: 20, color: '#999', marginTop: 15, fontWeight: 'bold' },
@@ -365,7 +328,7 @@ const styles = StyleSheet.create({
 
     rowBack: {
         alignItems: 'center',
-        backgroundColor: '#F7F9FC', 
+        backgroundColor: '#F7F9FC',
         flex: 1,
         flexDirection: 'row',
         justifyContent: 'flex-end',
@@ -380,18 +343,18 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: 0,
         bottom: 0,
-        width: 75, 
+        width: 75,
     },
     starButton: {
-        backgroundColor: '#3CB0E1', 
-        right: 150, 
+        backgroundColor: '#3CB0E1',
+        right: 150,
     },
     editButton: {
-        backgroundColor: '#8C4DD5', 
-        right: 75, 
+        backgroundColor: '#8C4DD5',
+        right: 75,
     },
     deleteButton: {
-        backgroundColor: '#FF6347', 
+        backgroundColor: '#FF6347',
         right: 0,
     },
 });
