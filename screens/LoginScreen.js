@@ -22,30 +22,36 @@ const LoginScreen = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [rememberMe, setRememberMe] = useState(false);
-    const [loading, setLoading] = useState(false); 
+    const [loading, setLoading] = useState(false);
 
-    const handleLogin = async () => {
+    const handleLogin = () => {
         if (!email || !password) {
             Alert.alert('Erro de Login', 'Por favor, preencha todos os campos.');
             return;
         }
 
-        setLoading(true); 
-        try {
-            await new Promise(resolve => setTimeout(resolve, 1500)); // Simula 1.5s de requisição
+        setLoading(true);
 
-            // Verifica credenciais mock (apenas para teste)
-            if (email === 'teste@email.com' && password === '123456') {
-                login(); // 'replace' para não voltar para o login
-            } else {
-                Alert.alert('Erro de Login', 'E-mail ou senha inválidos.');
-            }
-        } catch (error) {
-            Alert.alert('Erro', 'Ocorreu um erro ao tentar fazer login. Tente novamente.');
-            console.error('Erro de login:', error);
-        } finally {
-            setLoading(false); // Desativa o indicador de carregamento
-        }
+        // --- CHAMADA REAL DO FIREBASE ---
+        login(email, password)
+            .then((userCredential) => {
+                // Login sucesso!
+                // O AuthContext e o App.js cuidam da navegação.
+            })
+            .catch((error) => {
+                // Trata erros do Firebase
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                    Alert.alert('Erro de Login', 'E-mail ou senha inválidos.');
+                } else if (error.code === 'auth/invalid-email') {
+                    Alert.alert('Erro', 'O formato do e-mail é inválido.');
+                } else {
+                    Alert.alert('Erro', 'Ocorreu um erro ao tentar fazer login.');
+                }
+                console.error('Erro de login:', error);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
     };
 
     return (
@@ -69,7 +75,7 @@ const LoginScreen = () => {
                 style={styles.input}
                 placeholder="Senha"
                 placeholderTextColor="#999"
-                secureTextEntry 
+                secureTextEntry
                 value={password}
                 onChangeText={setPassword}
             />
@@ -85,7 +91,7 @@ const LoginScreen = () => {
 
             {/* Botão de Login */}
             <TouchableOpacity
-                style={styles.loginButton} 
+                style={styles.loginButton}
                 onPress={handleLogin}
                 disabled={loading}
             >
@@ -111,7 +117,7 @@ const LoginScreen = () => {
 
 const styles = StyleSheet.create({
     container: {
-        flexGrow: 1, 
+        flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
@@ -138,7 +144,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         borderWidth: 1,
         borderColor: '#E0E0E0',
-        shadowColor: '#000', 
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
         shadowRadius: 3,
@@ -159,8 +165,8 @@ const styles = StyleSheet.create({
     loginButton: {
         width: '100%',
         height: 50,
-        borderRadius: 10, 
-        overflow: 'hidden', 
+        borderRadius: 10,
+        overflow: 'hidden',
         marginBottom: 20,
     },
     gradient: {
@@ -179,7 +185,7 @@ const styles = StyleSheet.create({
         opacity: 0.6,
     },
     loginButtonDisabled: {
-        backgroundColor: '#BDBDBD', 
+        backgroundColor: '#BDBDBD',
         shadowColor: 'transparent',
     },
     loginButtonText: {
@@ -192,7 +198,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     registerLink: {
-        color: '#3CB0E1', 
+        color: '#3CB0E1',
         fontWeight: 'bold',
     },
 });

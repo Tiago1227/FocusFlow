@@ -6,8 +6,11 @@ import AppNavigator from './navigation/AppNavigator';
 import MainDrawerNavigator from './navigation/MainDrawerNavigator';
 
 const RootNavigator = () => {
-  const { isAuthenticated } = useAuth(); 
+  const { isAuthenticated, loading } = useAuth(); 
 
+  if (loading) {
+    return null; // Ou <SplashScreen />
+  }
   return (
     <NavigationContainer>
       {isAuthenticated ? <MainDrawerNavigator /> : <AuthNavigator />} 

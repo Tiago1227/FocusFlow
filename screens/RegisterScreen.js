@@ -10,15 +10,15 @@ import {
     ScrollView,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient'; 
-import { Feather } from '@expo/vector-icons'; 
-import CustomCheckbox from '../components/CustomCheckbox'; 
-import FocusFlowLogo from '../assets/images/logo.png'; 
+import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
+import CustomCheckbox from '../components/CustomCheckbox';
+import FocusFlowLogo from '../assets/images/logo.png';
 import { useAuth } from '../context/AuthContext';
 
 const RegisterScreen = () => {
     const navigation = useNavigation();
-    const { login } = useAuth();
+    const { register } = useAuth();
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -26,7 +26,8 @@ const RegisterScreen = () => {
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    const handleRegister = async () => {
+    const handleRegister = () => {
+        // (Mantém as validações de campos vazios, senhas, etc.)
         if (!fullName || !email || !password || !confirmPassword) {
             Alert.alert('Erro', 'Por favor, preencha todos os campos.');
             return;
@@ -41,26 +42,36 @@ const RegisterScreen = () => {
             Alert.alert('Erro', 'A senha deve ter pelo menos 6 caracteres.');
             return;
         }
-
+        
         if (!agreedToTerms) {
-            Alert.alert('Erro', 'Você deve aceitar os Termos e Condições para continuar.');
+            Alert.alert('Erro', 'Você deve aceitar os Termos e Condições.');
             return;
         }
 
         setLoading(true);
-        try {
 
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            Alert.alert('Sucesso!', 'Sua conta foi criada.');
-            login();
-
-        } catch (error) {
-            Alert.alert('Erro', 'Ocorreu um erro ao criar sua conta. Tente novamente.');
-            console.error('Erro de cadastro:', error);
-        } finally {
-            setLoading(false);
-        }
+        // --- CHAMADA REAL DO FIREBASE ---
+        register(email, password)
+            .then((userCredential) => {
+                // Cadastro sucesso!
+                // Não precisamos fazer nada aqui. O AuthContext
+                // vai detectar o novo usuário e o App.js
+                // vai automaticamente navegar para a tela principal.
+            })
+            .catch((error) => {
+                // Trata erros do Firebase
+                if (error.code === 'auth/email-already-in-use') {
+                    Alert.alert('Erro', 'Este e-mail já está em uso.');
+                } else if (error.code === 'auth/invalid-email') {
+                    Alert.alert('Erro', 'O formato do e-mail é inválido.');
+                } else {
+                    Alert.alert('Erro', 'Ocorreu um erro ao criar sua conta.');
+                }
+                console.error('Erro de cadastro:', error);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
     };
 
     return (
@@ -153,12 +164,12 @@ const styles = StyleSheet.create({
     },
     backButton: {
         position: 'absolute',
-        top: 50, 
+        top: 50,
         left: 20,
-        zIndex: 1, 
+        zIndex: 1,
     },
     logo: {
-        width: 120, 
+        width: 120,
         height: 120,
         marginBottom: 20,
     },
@@ -192,7 +203,7 @@ const styles = StyleSheet.create({
         width: '100%',
         height: 50,
         borderRadius: 10,
-        overflow: 'hidden', 
+        overflow: 'hidden',
         marginBottom: 20,
     },
     gradient: {
@@ -220,7 +231,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     loginLink: {
-        color: '#3CB0E1', 
+        color: '#3CB0E1',
         fontWeight: 'bold',
     },
 });
