@@ -27,7 +27,6 @@ const RegisterScreen = () => {
     const [loading, setLoading] = useState(false);
 
     const handleRegister = () => {
-        // (Mantém as validações de campos vazios, senhas, etc.)
         if (!fullName || !email || !password || !confirmPassword) {
             Alert.alert('Erro', 'Por favor, preencha todos os campos.');
             return;
@@ -50,16 +49,10 @@ const RegisterScreen = () => {
 
         setLoading(true);
 
-        // --- CHAMADA REAL DO FIREBASE ---
         register(email, password)
             .then((userCredential) => {
-                // Cadastro sucesso!
-                // Não precisamos fazer nada aqui. O AuthContext
-                // vai detectar o novo usuário e o App.js
-                // vai automaticamente navegar para a tela principal.
             })
             .catch((error) => {
-                // Trata erros do Firebase
                 if (error.code === 'auth/email-already-in-use') {
                     Alert.alert('Erro', 'Este e-mail já está em uso.');
                 } else if (error.code === 'auth/invalid-email') {
@@ -125,7 +118,6 @@ const RegisterScreen = () => {
                     isChecked={agreedToTerms}
                     onPress={() => setAgreedToTerms(!agreedToTerms)}
                 />
-                {/* Adicionar um link para os Termos aqui */}
             </View>
 
             {/* Botão de Cadastrar */}

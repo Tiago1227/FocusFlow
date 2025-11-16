@@ -25,7 +25,7 @@ const AddEditTaskScreen = () => {
   const route = useRoute();
   const taskToEdit = route.params?.taskToEdit;
   const isEditMode = !!taskToEdit;
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -51,18 +51,16 @@ const AddEditTaskScreen = () => {
 
   const onDateTimeChange = (event, selectedDate) => {
     const currentDate = selectedDate || date;
-    // Mude esta linha:
-    // setShowPicker(Platform.OS === 'ios'); // ANTES
-    if (Platform.OS === 'ios') { // Esconde apenas se o usuário "setar" a data/hora
+    if (Platform.OS === 'ios') { 
       setShowPicker(false);
-    } else if (Platform.OS === 'android') { // No Android, sempre esconde após interação
+    } else if (Platform.OS === 'android') { 
       setShowPicker(false);
     }
     setDate(currentDate);
   };
 
-  const handleSaveTask = async () => { // Adicione 'async' aqui
-    if (!user) {
+  const handleSaveTask = async () => { 
+    if (!currentUser) {
       Alert.alert('Erro', 'Usuário não autenticado.');
       return;
     }
@@ -73,8 +71,8 @@ const AddEditTaskScreen = () => {
 
     try {
       const taskRef = isEditMode
-        ? doc(db, 'tasks', taskToEdit.id) // Se for edição, referencia o documento existente
-        : doc(collection(db, 'tasks')); // Se for criação, cria uma nova referência de documento com ID automático
+        ? doc(db, 'tasks', taskToEdit.id) 
+        : doc(collection(db, 'tasks')); 
 
       const taskData = {
         title,
@@ -84,20 +82,19 @@ const AddEditTaskScreen = () => {
         dueDate: date.toISOString().slice(0, 10),
         isCompleted: isEditMode ? taskToEdit.isCompleted : false,
         isStarred: isEditMode ? taskToEdit.isStarred : false,
-        userId: user.uid, // Garante que a tarefa seja associada ao usuário
-        createdAt: isEditMode ? taskToEdit.createdAt : new Date(), // Mantém createdAt na edição, cria na criação
+        userId: currentUser.uid, 
+        createdAt: isEditMode ? taskToEdit.createdAt : new Date(), 
       };
 
       if (isEditMode) {
-        await updateDoc(taskRef, taskData); // Atualiza o documento existente
+        await updateDoc(taskRef, taskData); 
         Alert.alert('Sucesso', 'Tarefa atualizada com sucesso!');
       } else {
-        // setDoc com taskRef (que já tem um ID gerado) para criar o documento
         await setDoc(taskRef, taskData);
         Alert.alert('Sucesso', 'Tarefa criada com sucesso!');
       }
 
-      navigation.goBack(); // Volta para a Home. A Home se atualizará via onSnapshot.
+      navigation.goBack(); 
 
     } catch (error) {
       console.error("Erro ao salvar tarefa:", error);
@@ -184,17 +181,17 @@ const AddEditTaskScreen = () => {
             is24Hour={true}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={onDateTimeChange}
-            style={styles.dateTimePickerStyle} // Mantenha este estilo
+            style={styles.dateTimePickerStyle} 
           />
           {Platform.OS === 'ios' && (
             <TouchableOpacity
               style={styles.confirmButton}
-              onPress={() => setShowPicker(false)} // Fecha o picker quando confirmar
+              onPress={() => setShowPicker(false)} 
             >
               <Text style={styles.confirmButtonText}>Confirmar</Text>
             </TouchableOpacity>
           )}
-        </View> // FIM DO NOVO WRAPPER
+        </View> 
       )}
     </KeyboardAvoidingView>
   );

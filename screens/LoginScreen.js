@@ -1,4 +1,4 @@
-import React, { use, useState } from "react";
+import React, { useState } from "react";
 import {
     View,
     Text,
@@ -32,14 +32,11 @@ const LoginScreen = () => {
 
         setLoading(true);
 
-        // --- CHAMADA REAL DO FIREBASE ---
         login(email, password)
             .then((userCredential) => {
-                // Login sucesso!
-                // O AuthContext e o App.js cuidam da navegação.
+                console.log('Login bem-sucedido para:', userCredential.user.email);
             })
             .catch((error) => {
-                // Trata erros do Firebase
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                     Alert.alert('Erro de Login', 'E-mail ou senha inválidos.');
                 } else if (error.code === 'auth/invalid-email') {

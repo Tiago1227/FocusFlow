@@ -14,14 +14,13 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../config/firebaseConfig'; // Nosso banco de dados
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; // Funções do Firestore
-import { useAuth } from '../context/AuthContext'; // Para pegar o ID do usuário
-import DateTimePicker from '@react-native-community/datetimepicker'; // <-- Importe
-import { Picker } from '@react-native-picker/picker'; // <-- Importe
-import * as Notifications from 'expo-notifications'; // <-- Importe para notificações
+import { db } from '../config/firebaseConfig'; 
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; 
+import { useAuth } from '../context/AuthContext'; 
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker'; 
+import * as Notifications from 'expo-notifications'; 
 
-// Handler de notificação (pode ser aqui ou em App.js, para o teste vamos colocar aqui)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -34,30 +33,27 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const inputRef = useRef(null);
-  const { user } = useAuth(); // Pega o usuário logado
-  const [category, setCategory] = useState('Pessoal'); // Categoria padrão 'Pessoal'
-  const [date, setDate] = useState(new Date()); // Data e hora iniciais
-  const [priority, setPriority] = useState('Média'); // Prioridade padrão 'Média'
-  const [reminderTime, setReminderTime] = useState(null); // Em minutos, null para sem lembrete
+  const { currentUser } = useAuth(); 
+  const [category, setCategory] = useState('Pessoal'); 
+  const [date, setDate] = useState(new Date()); 
+  const [priority, setPriority] = useState('Média'); 
+  const [reminderTime, setReminderTime] = useState(null); 
 
-  // Estados para controlar a visibilidade dos pickers
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
 
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false); // Para o dropdown de categoria
-  const [currentPriorityIndex, setCurrentPriorityIndex] = useState(1); // 0: Baixa (verde), 1: Média (amarelo), 2: Alta (vermelho)
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false); 
+  const [currentPriorityIndex, setCurrentPriorityIndex] = useState(1); 
 
-  // Array de prioridades para facilitar a troca
   const priorities = [
     { label: 'Baixa', value: 'Baixa', color: '#2ECC71' }, // Verde
     { label: 'Média', value: 'Média', color: '#F1C40F' }, // Amarelo
     { label: 'Alta', value: 'Alta', color: '#E74C3C' },   // Vermelho
   ];
 
-  // Efeito para sincronizar 'priority' com 'currentPriorityIndex'
   useEffect(() => {
     setPriority(priorities[currentPriorityIndex].value);
   }, [currentPriorityIndex]);
@@ -76,46 +72,45 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
 
   const onDateChange = (event, selectedDate) => {
     const currentDate = selectedDate || date;
-    setShowDatePicker(Platform.OS === 'ios'); // No iOS, fica visível até clicar em confirmar ou fora
+    setShowDatePicker(Platform.OS === 'ios');
     setDate(currentDate);
-    if (Platform.OS === 'android') { // No Android, fecha automaticamente
+    if (Platform.OS === 'android') { 
       setShowDatePicker(false);
     }
   };
 
   const onTimeChange = (event, selectedTime) => {
     const currentTime = selectedTime || date;
-    setShowTimePicker(Platform.OS === 'ios'); // No iOS, fica visível até clicar em confirmar ou fora
+    setShowTimePicker(Platform.OS === 'ios'); 
     setDate(currentTime);
-    if (Platform.OS === 'android') { // No Android, fecha automaticamente
+    if (Platform.OS === 'android') { 
       setShowTimePicker(false);
     }
   };
 
-  // Funções para mostrar os pickers específicos
   const showDatepicker = () => {
     setShowDatePicker(true);
-    setShowTimePicker(false); // Garante que apenas um esteja visível
+    setShowTimePicker(false); 
   };
 
   const showTimepicker = () => {
     setShowTimePicker(true);
-    setShowDatePicker(false); // Garante que apenas um esteja visível
+    setShowDatePicker(false); 
   };
 
   const handleSave = async () => {
-    if (!title || !user) {
+    if (!title || !currentUser) {
       Alert.alert('Erro', 'O título é obrigatório e você deve estar logado.');
       return;
     }
 
     try {
       const taskData = {
-        userId: user.uid,
+        userId: currentUser.uid,
         title: title,
         description: description,
         category: category,
-        priority: priorities[currentPriorityIndex].value, // <-- Usa o valor da prioridade selecionada
+        priority: priorities[currentPriorityIndex].value, 
         time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         dueDate: date.toISOString().slice(0, 10),
         isCompleted: false,
@@ -128,12 +123,12 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
 
       // --- Lógica de Notificação ---
       if (reminderTime && date) {
-        await registerForPushNotificationsAsync(); // Garante as permissões
+        await registerForPushNotificationsAsync(); 
 
         const triggerDate = new Date(date);
-        triggerDate.setMinutes(triggerDate.getMinutes() - reminderTime); // Define a notificação X minutos antes
+        triggerDate.setMinutes(triggerDate.getMinutes() - reminderTime); 
 
-        if (triggerDate > new Date()) { // Agendar apenas se a data de disparo for no futuro
+        if (triggerDate > new Date()) { 
           await Notifications.scheduleNotificationAsync({
             content: {
               title: "Lembrete de Tarefa: " + title,
@@ -147,7 +142,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
           console.log("Data de lembrete no passado, não agendado.");
         }
       }
-      // --- Fim Lógica de Notificação ---
 
       resetAndClose();
 
@@ -157,7 +151,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
     }
   };
 
-  // Função para pedir permissões de notificação (pode ser externa ao componente)
   async function registerForPushNotificationsAsync() {
     let token;
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -178,10 +171,10 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
   const resetAndClose = () => {
     setTitle('');
     setDescription('');
-    setCategory('Pessoal'); // Reseta para o padrão
-    setDate(new Date()); // Reseta a data/hora
-    setPriority('Média'); // Reseta a prioridade
-    setReminderTime(null); // Reseta o lembrete
+    setCategory('Pessoal'); 
+    setDate(new Date()); 
+    setPriority('Média'); 
+    setReminderTime(null); 
     onClose();
   };
 
@@ -198,7 +191,7 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
       >
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => {
           resetAndClose();
-          setShowCategoryDropdown(false); // Fecha o dropdown ao clicar fora
+          setShowCategoryDropdown(false);
         }} />
 
         <View style={styles.content}>
@@ -211,7 +204,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
             onChangeText={setTitle}
           />
 
-          {/* NOVA BARRA DE AÇÕES INFERIOR */}
           <View style={styles.newActionsRow}>
             {/* Categoria */}
             <View style={styles.categoryButtonWrapper}>
@@ -279,7 +271,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
         </View>
       </KeyboardAvoidingView>
 
-      {/* DateTimePicker para Data (Android) - Sem alterações aqui */}
       {showDatePicker && Platform.OS === 'android' && (
         <DateTimePicker
           testID="datePickerAndroid"
@@ -288,14 +279,13 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
           display="default"
           onChange={(event, selectedDate) => {
             onDateChange(event, selectedDate);
-            if (event.type === 'set') { // Se a data foi selecionada, mostre o time picker
+            if (event.type === 'set') { 
               setShowTimePicker(true);
             }
           }}
         />
       )}
 
-      {/* DateTimePicker para Hora (Android) - Sem alterações aqui */}
       {showTimePicker && Platform.OS === 'android' && (
         <DateTimePicker
           testID="timePickerAndroid"
@@ -307,7 +297,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
         />
       )}
 
-      {/* DateTimePicker para Data/Hora (iOS) - Sem alterações aqui */}
       {(showDatePicker || showTimePicker) && Platform.OS === 'ios' && (
         <Modal
           transparent={true}
@@ -333,10 +322,10 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
               <TouchableOpacity
                 style={styles.confirmButton}
                 onPress={() => {
-                  if (showDatePicker) { // Se estava no picker de data, abre o de hora
+                  if (showDatePicker) { 
                     setShowDatePicker(false);
                     setShowTimePicker(true);
-                  } else { // Se estava no picker de hora, fecha tudo
+                  } else { 
                     setShowTimePicker(false);
                   }
                 }}
@@ -348,7 +337,6 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
         </Modal>
       )}
 
-      {/* Modal para Selecionar Lembrete (usando Picker) - Mantido como modal */}
       <Modal
         transparent={true}
         animationType="fade"
@@ -428,17 +416,16 @@ const styles = StyleSheet.create({
     color: '#333',
     minHeight: 60,
     textAlignVertical: 'top',
-    marginTop: 15, // Dê um espaço após a nova barra de ações
+    marginTop: 15,
     marginBottom: 10,
   },
 
-  // Estilos para a nova barra de ações
   newActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-    flexWrap: 'wrap', // Permite que os itens quebrem a linha se não houver espaço
+    flexWrap: 'wrap', 
   },
   actionChip: {
     flexDirection: 'row',
@@ -447,8 +434,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    marginRight: 8, // Espaço entre os chips
-    marginBottom: 8, // Espaço para quebra de linha
+    marginRight: 8, 
+    marginBottom: 8, 
   },
   actionChipText: {
     marginLeft: 5,
@@ -456,7 +443,7 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '500',
   },
-  actionChipTextSmall: { // Para o lembrete
+  actionChipTextSmall: { 
     marginLeft: 5,
     fontSize: 11,
     color: '#555',
@@ -477,20 +464,19 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 'auto', // Empurra para a direita
+    marginLeft: 'auto', 
     marginBottom: 8,
   },
 
-  // Estilos para o dropdown de categoria
   categoryButtonWrapper: {
     position: 'relative',
-    zIndex: 10, // Garante que o dropdown apareça acima de outros elementos
+    zIndex: 10, 
     marginRight: 8,
     marginBottom: 8,
   },
   categoryDropdown: {
     position: 'absolute',
-    top: '100%', // Posiciona abaixo do botão
+    top: '100%', 
     left: 0,
     backgroundColor: '#FFF',
     borderRadius: 8,
@@ -499,7 +485,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 5,
-    zIndex: 100, // Acima de tudo
+    zIndex: 100, 
     minWidth: 150,
   },
   dropdownItem: {
@@ -512,7 +498,6 @@ const styles = StyleSheet.create({
     color: '#333',
   },
 
-  // Estilos para Modals de pickers (data, hora, lembrete)
   pickerOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',

@@ -6,57 +6,139 @@ import {
     TouchableOpacity,
     Alert,
     SectionList,
+    Platform
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SwipeListView } from 'react-native-swipe-list-view';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, DrawerActions } from '@react-navigation/native';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from '../context/AuthContext';
-import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Importe updateDoc e deleteDoc
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import QuickAddTask from '../components/QuickAddTask';
 import SwipeableTaskItem from '../components/SwipeableTaskItem';
 
 const HomeScreen = () => {
     const navigation = useNavigation();
     const route = useRoute();
-    const { user } = useAuth();
-    const [tasks, setTasks] = useState([]);
-    const [isQuickAddVisible, setIsQuickAddVisible] = useState(false);
+    const { currentUser } = useAuth();
 
-    useEffect(() => {
-        console.log("HomeScreen: User UID:", user ? user.uid : "No user logged in");
-        if (!user) {
-            setTasks([]);
-            return;
+    const [tasks, setTasks] = useState([]);
+    const [sections, setSections] = useState([]);
+    const [isQuickAddVisible, setIsQuickAddVisible] = useState(false);
+    const [activeFilter, setActiveFilter] = useState({ type: 'all', value: null });
+    const [sortBy, setSortBy] = useState('dueDate');
+    const [sortOrder, setSortOrder] = useState('asc');
+
+    const groupTasksByDate = (tasksToGroup) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const nextSevenDays = new Date();
+        nextSevenDays.setDate(today.getDate() + 7);
+        nextSevenDays.setHours(23, 59, 59, 999);
+
+        const activeTasks = tasksToGroup.filter(task => !task.isCompleted);
+        const completedTasks = tasksToGroup.filter(task => task.isCompleted);
+
+        const groupedActive = {
+            'Para Hoje': [],
+            'Próximos 7 Dias': [],
+            'Outras Datas': [],
+        };
+
+        activeTasks.forEach(task => {
+            const taskDueDate = task.dueDate;
+            if (!taskDueDate || isNaN(taskDueDate.getTime())) {
+                groupedActive['Outras Datas'].push(task);
+                return;
+            }
+            taskDueDate.setHours(0, 0, 0, 0);
+
+            if (taskDueDate.getTime() === today.getTime()) {
+                groupedActive['Para Hoje'].push(task);
+            } else if (taskDueDate > today && taskDueDate <= nextSevenDays) {
+                groupedActive['Próximos 7 Dias'].push(task);
+            } else {
+                groupedActive['Outras Datas'].push(task);
+            }
+        });
+
+        Object.keys(groupedActive).forEach(key => {
+            groupedActive[key].sort((a, b) => {
+                const dateA = a.dueDate ? new Date(a.dueDate.getFullYear(), a.dueDate.getMonth(), a.dueDate.getDate(), (a.time ? parseInt(a.time.split(':')[0]) : 0), (a.time ? parseInt(a.time.split(':')[1]) : 0)) : new Date(0);
+                const dateB = b.dueDate ? new Date(b.dueDate.getFullYear(), b.dueDate.getMonth(), b.dueDate.getDate(), (b.time ? parseInt(b.time.split(':')[0]) : 0), (b.time ? parseInt(b.time.split(':')[1]) : 0)) : new Date(0);
+
+                return dateA.getTime() - dateB.getTime();
+            });
+        });
+
+        const finalSections = [];
+
+        if (groupedActive['Para Hoje'].length > 0) {
+            finalSections.push({ title: 'Para Hoje', data: groupedActive['Para Hoje'] });
+        }
+        if (groupedActive['Próximos 7 Dias'].length > 0) {
+            finalSections.push({ title: 'Próximos 7 Dias', data: groupedActive['Próximos 7 Dias'] });
+        }
+        if (groupedActive['Outras Datas'].length > 0) {
+            finalSections.push({ title: 'Outras Datas', data: groupedActive['Outras Datas'] });
+        }
+        if (completedTasks.length > 0) {
+            finalSections.push({ title: 'Concluídas', data: completedTasks });
         }
 
-        const tasksCollection = collection(db, 'tasks');
-        const q = query(
-            tasksCollection,
-            where("userId", "==", user.uid),
-            orderBy("createdAt", "desc")
-        );
+        return finalSections;
+    };
 
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const tasksFromDb = [];
-            querySnapshot.forEach((doc) => {
-                tasksFromDb.push({ id: doc.id, ...doc.data() });
+    useEffect(() => {
+        if (route.params?.filterType) {
+            setActiveFilter({
+                type: route.params.filterType,
+                value: route.params.filterValue || null
             });
-            console.log("Firestore Snapshot: Tarefas recebidas:", tasksFromDb);
-            setTasks(tasksFromDb);
+            navigation.setParams({ filterType: undefined, filterValue: undefined });
+        }
+    }, [route.params?.filterType, route.params?.filterValue]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const tasksCollectionRef = collection(db, 'tasks');
+        let q = query(tasksCollectionRef, where('userId', '==', currentUser.uid));
+
+        if (activeFilter.type === 'category' && activeFilter.value) {
+            q = query(q, where('category', '==', activeFilter.value));
+        } else if (activeFilter.type === 'priority' && activeFilter.value) {
+            q = query(q, where('priority', '==', activeFilter.value));
+        } else if (activeFilter.type === 'starred') {
+            q = query(q, where('isStarred', '==', true));
+        }
+
+        q = query(q, orderBy('dueDate', 'asc'), orderBy('time', 'asc'), orderBy('createdAt', 'desc'));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedTasks = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                dueDate: doc.data().dueDate
+                    ? (doc.data().dueDate.toDate
+                        ? doc.data().dueDate.toDate()
+                        : new Date(doc.data().dueDate + 'T00:00:00'))
+                    : null,
+            }));
+            setTasks(fetchedTasks);
+
+            const newSections = groupTasksByDate(fetchedTasks);
+            setSections(newSections);
+        }, (error) => {
+            console.error("Erro ao buscar tarefas:", error);
+            Alert.alert("Erro", "Não foi possível carregar as tarefas.");
         });
 
         return () => unsubscribe();
-
-    }, [user]);
-
-    console.log("HomeScreen: Estado atual das tarefas:", tasks);
-
-    // --- FUNÇÕES DE INTERAÇÃO COM O FIRESTORE ---
+    }, [currentUser, activeFilter.type, activeFilter.value]);
 
     const handleToggleComplete = async (id) => {
-        if (!user) return;
+        if (!currentUser) return;
         try {
             const taskRef = doc(db, 'tasks', id);
             const currentTask = tasks.find(t => t.id === id);
@@ -64,7 +146,6 @@ const HomeScreen = () => {
                 await updateDoc(taskRef, {
                     isCompleted: !currentTask.isCompleted,
                 });
-                // O onSnapshot vai atualizar o estado tasks automaticamente
             }
         } catch (error) {
             console.error("Erro ao alternar conclusão da tarefa:", error);
@@ -73,7 +154,7 @@ const HomeScreen = () => {
     };
 
     const handleStarTask = async (id) => {
-        if (!user) return;
+        if (!currentUser) return;
         try {
             const taskRef = doc(db, 'tasks', id);
             const currentTask = tasks.find(t => t.id === id);
@@ -93,7 +174,7 @@ const HomeScreen = () => {
     };
 
     const handleDeleteTask = async (id) => {
-        if (!user) return;
+        if (!currentUser) return;
         Alert.alert(
             'Excluir Tarefa',
             'Tem certeza que deseja excluir esta tarefa?',
@@ -105,7 +186,6 @@ const HomeScreen = () => {
                     onPress: async () => {
                         try {
                             await deleteDoc(doc(db, 'tasks', id));
-                            // O onSnapshot vai remover a tarefa do estado automaticamente
                         } catch (error) {
                             console.error("Erro ao excluir tarefa:", error);
                             Alert.alert("Erro", "Não foi possível excluir a tarefa.");
@@ -116,43 +196,20 @@ const HomeScreen = () => {
         );
     };
 
-    // --- FIM DAS FUNÇÕES DE INTERAÇÃO COM O FIRESTORE ---
-
-
-    // REMOVA O renderHiddenItem (ele não é mais necessário com SectionList)
-    // const renderHiddenItem = (data, rowMap) => ( ... );
-
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    const tasksData = [
-        {
-            title: 'Para Hoje',
-            data: tasks.filter(t => t.dueDate === today && !t.isCompleted).sort((a, b) => a.time.localeCompare(b.time)),
-        },
-        {
-            title: 'Próximos Dias',
-            data: tasks.filter(t => t.dueDate !== today && !t.isCompleted).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.time.localeCompare(b.time)),
-        },
-        {
-            title: 'Concluídas',
-            data: tasks.filter(t => t.isCompleted).sort((a, b) => b.dueDate.localeCompare(a.dueDate)),
-        },
-    ];
-
-    const sections = tasksData.filter(section => section.data.length > 0);
-
-    console.log("HomeScreen: tasksData completo:", tasksData);
-    console.log("HomeScreen: Seções filtradas para renderização:", sections);
     return (
         <View style={styles.fullScreenContainer}>
             <View style={styles.header}>
-                {/* LINHA DE CIMA: Título e Ícones */}
                 <View style={styles.headerTopRow}>
-                    <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.drawerIcon}>
+                    <TouchableOpacity onPress={() => navigation.dispatch(DrawerActions.openDrawer())} style={styles.drawerIcon}>
                         <Feather name="menu" size={24} color="#333" />
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Hoje</Text>
+                    <Text style={styles.headerTitle}>
+                        {String(
+                            activeFilter.type === 'all' ? 'Hoje' :
+                                activeFilter.type === 'starred' ? 'Estreladas' :
+                                    activeFilter.value || 'Tarefas'
+                        )}
+                    </Text>
                     <View style={styles.headerIcons}>
                         <TouchableOpacity onPress={() => Alert.alert('Ação', 'Buscar tarefas')}>
                             <Feather name="search" size={24} color="#555" style={styles.headerIcon} />
@@ -163,20 +220,20 @@ const HomeScreen = () => {
                     </View>
                 </View>
 
-                {/* LINHA DE BAIXO: Data */}
-                <Text style={styles.headerSubtitle}>
-                    {new Date().toLocaleDateString('pt-BR', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'long',
-                    })}
-                </Text>
+                {activeFilter.type === 'all' && (
+                    <Text style={styles.headerSubtitle}>
+                        {new Date().toLocaleDateString('pt-BR', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                        })}
+                    </Text>
+                )}
             </View>
             <SectionList
                 sections={sections}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item) => String(item.id)}
                 renderItem={({ item }) => (
-                    // Agora usamos o novo SwipeableTaskItem
                     <SwipeableTaskItem
                         task={item}
                         onToggleComplete={handleToggleComplete}
@@ -186,7 +243,9 @@ const HomeScreen = () => {
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (
-                    <Text style={styles.sectionTitle}>{title}</Text>
+                    <View style={styles.sectionHeaderContainer}>
+                        <Text style={styles.sectionTitle}>{title}</Text>
+                    </View>
                 )}
                 ListEmptyComponent={() => (
                     <View style={styles.emptyState}>
@@ -195,10 +254,10 @@ const HomeScreen = () => {
                         <Text style={styles.emptyStateTextSmall}>Que tal adicionar uma nova?</Text>
                     </View>
                 )}
-                contentContainerStyle={styles.listContainer}
+                contentContainerStyle={styles.listContentContainer}
+                stickySectionHeadersEnabled={true}
             />
 
-            {/* Botão Flutuante (igual) */}
             <TouchableOpacity
                 style={styles.fabContainer}
                 onPress={() => setIsQuickAddVisible(true)}
@@ -220,14 +279,13 @@ const HomeScreen = () => {
     );
 };
 
-// --- ESTILOS  ---
 const styles = StyleSheet.create({
     fullScreenContainer: {
         flex: 1,
         backgroundColor: '#F7F9FC',
     },
     header: {
-        paddingTop: 60,
+        paddingTop: Platform.OS === 'android' ? 40 : 60,
         paddingHorizontal: 20,
         paddingBottom: 20,
         backgroundColor: '#FFF',
@@ -239,8 +297,19 @@ const styles = StyleSheet.create({
         shadowRadius: 5,
         elevation: 3,
     },
+    headerTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 5,
+        width: '100%',
+    },
+    drawerIcon: {
+        marginRight: 15,
+        padding: 5,
+    },
     headerTitle: {
-        fontSize: 32,
+        fontSize: 22,
         fontWeight: 'bold',
         color: '#333',
         flex: 1,
@@ -251,60 +320,32 @@ const styles = StyleSheet.create({
     },
     headerIcon: {
         marginLeft: 20,
+        padding: 5,
     },
     headerSubtitle: {
         fontSize: 16,
         color: '#777',
         marginTop: 5,
     },
-
-    headerTopRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 5,
-        width: '100%',
-    },
-    drawerIcon: {
-        marginRight: 15,
-    },
-    listContainer: {
+    sectionHeaderContainer: {
+        backgroundColor: '#F7F9FC',
+        paddingVertical: 10,
         paddingHorizontal: 20,
-        paddingBottom: 100,
     },
     sectionTitle: {
         fontSize: 20,
         fontWeight: 'bold',
         color: '#333',
-        marginBottom: 15,
-        marginTop: 30,
     },
-    taskItemContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FFF',
-        borderRadius: 15,
-        padding: 15,
-        marginBottom: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 3,
-        elevation: 2,
+    listContentContainer: {
+        paddingBottom: 100,
     },
-    taskCheckbox: {
-        width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: '#8C4DD5',
-        justifyContent: 'center', alignItems: 'center', marginRight: 15,
+    emptyState: {
+        flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50,
     },
-    taskCheckboxCompleted: { backgroundColor: '#8C4DD5', borderColor: '#8C4DD5' },
-    taskContent: { flex: 1 },
-    taskTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
-    taskTitleCompleted: { textDecorationLine: 'line-through', color: '#999' },
-    taskDescription: { fontSize: 13, color: '#777', marginTop: 2 },
-    taskMeta: { alignItems: 'flex-end', marginLeft: 10 },
-    taskTime: { fontSize: 13, color: '#777', marginBottom: 5 },
-    taskCategory: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
-    taskCategoryText: { fontSize: 11, color: '#FFF', fontWeight: 'bold' },
+    emptyStateText: { fontSize: 20, color: '#999', marginTop: 15, fontWeight: 'bold' },
+    emptyStateTextSmall: { fontSize: 14, color: '#AAA', marginTop: 5 },
+
     fabContainer: {
         position: 'absolute',
         bottom: 10,
@@ -320,43 +361,6 @@ const styles = StyleSheet.create({
         elevation: 8,
     },
     fabGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    emptyState: {
-        flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50,
-    },
-    emptyStateText: { fontSize: 20, color: '#999', marginTop: 15, fontWeight: 'bold' },
-    emptyStateTextSmall: { fontSize: 14, color: '#AAA', marginTop: 5 },
-
-    rowBack: {
-        alignItems: 'center',
-        backgroundColor: '#F7F9FC',
-        flex: 1,
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        paddingLeft: 15,
-        marginBottom: 10,
-        borderRadius: 15,
-        overflow: 'hidden',
-    },
-    backButton: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        width: 75,
-    },
-    starButton: {
-        backgroundColor: '#3CB0E1',
-        right: 150,
-    },
-    editButton: {
-        backgroundColor: '#8C4DD5',
-        right: 75,
-    },
-    deleteButton: {
-        backgroundColor: '#FF6347',
-        right: 0,
-    },
 });
 
 export default HomeScreen;
