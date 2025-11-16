@@ -114,8 +114,7 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     animatedTaskWrapper: {
-        backgroundColor: '#FFF', // Cor de fundo do item arrastável
-        // Garante que o item ocupe toda a largura
+        backgroundColor: '#FFF', 
         width: '100%',
     },
     actionsContainer: {
