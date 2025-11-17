@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { db } from '../config/firebaseConfig';
+import { useAuth } from '../context/AuthContext';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   View,
   Text,
@@ -14,28 +17,29 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
-import { v4 as uuidv4 } from 'uuid'; 
+import { v4 as uuidv4 } from 'uuid';
 
 
 const AddEditTaskScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const taskToEdit = route.params?.taskToEdit; 
-  const isEditMode = !!taskToEdit; 
+  const taskToEdit = route.params?.taskToEdit;
+  const isEditMode = !!taskToEdit;
+  const { currentUser } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date());
-  const [category, setCategory] = useState('Pessoal'); 
+  const [category, setCategory] = useState('Pessoal');
 
   const [showPicker, setShowPicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState('date'); 
+  const [pickerMode, setPickerMode] = useState('date');
 
   useEffect(() => {
     if (isEditMode) {
       setTitle(taskToEdit.title);
       setDescription(taskToEdit.description || '');
-      setDate(new Date(taskToEdit.dueDate)); 
+      setDate(new Date(taskToEdit.dueDate));
       setCategory(taskToEdit.category);
     }
   }, [isEditMode, taskToEdit]);
@@ -47,32 +51,55 @@ const AddEditTaskScreen = () => {
 
   const onDateTimeChange = (event, selectedDate) => {
     const currentDate = selectedDate || date;
-    setShowPicker(Platform.OS === 'ios'); 
+    if (Platform.OS === 'ios') { 
+      setShowPicker(false);
+    } else if (Platform.OS === 'android') { 
+      setShowPicker(false);
+    }
     setDate(currentDate);
   };
 
-  const handleSaveTask = () => {
+  const handleSaveTask = async () => { 
+    if (!currentUser) {
+      Alert.alert('Erro', 'Usuário não autenticado.');
+      return;
+    }
     if (!title) {
       Alert.alert('Erro', 'O título da tarefa é obrigatório.');
       return;
     }
 
-    // Cria o objeto da tarefa
-    const taskData = {
-      id: isEditMode ? taskToEdit.id : uuidv4(), 
-      title,
-      description,
-      category,
-      time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      dueDate: date.toISOString().slice(0, 10), 
-      isCompleted: isEditMode ? taskToEdit.isCompleted : false,
-      isStarred: isEditMode ? taskToEdit.isStarred : false,
-    };
+    try {
+      const taskRef = isEditMode
+        ? doc(db, 'tasks', taskToEdit.id) 
+        : doc(collection(db, 'tasks')); 
 
-    navigation.navigate('Home', { 
-      savedTask: taskData, 
-      mode: isEditMode ? 'edit' : 'create' 
-    });
+      const taskData = {
+        title,
+        description,
+        category,
+        time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        dueDate: Timestamp.fromDate(date),
+        isCompleted: isEditMode ? taskToEdit.isCompleted : false,
+        isStarred: isEditMode ? taskToEdit.isStarred : false,
+        userId: currentUser.uid, 
+        createdAt: isEditMode ? taskToEdit.createdAt : new Date(), 
+      };
+
+      if (isEditMode) {
+        await updateDoc(taskRef, taskData); 
+        Alert.alert('Sucesso', 'Tarefa atualizada com sucesso!');
+      } else {
+        await setDoc(taskRef, taskData);
+        Alert.alert('Sucesso', 'Tarefa criada com sucesso!');
+      }
+
+      navigation.goBack(); 
+
+    } catch (error) {
+      console.error("Erro ao salvar tarefa:", error);
+      Alert.alert("Erro", "Não foi possível salvar a tarefa. Tente novamente.");
+    }
   };
 
   return (
@@ -146,14 +173,25 @@ const AddEditTaskScreen = () => {
       </ScrollView>
 
       {showPicker && (
-        <DateTimePicker
-          testID="dateTimePicker"
-          value={date}
-          mode={pickerMode}
-          is24Hour={true}
-          display="default"
-          onChange={onDateTimeChange}
-        />
+        <View style={styles.dateTimePickerWrapper}> 
+          <DateTimePicker
+            testID="dateTimePicker"
+            value={date}
+            mode={pickerMode}
+            is24Hour={true}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onDateTimeChange}
+            style={styles.dateTimePickerStyle} 
+          />
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              style={styles.confirmButton}
+              onPress={() => setShowPicker(false)} 
+            >
+              <Text style={styles.confirmButtonText}>Confirmar</Text>
+            </TouchableOpacity>
+          )}
+        </View> 
       )}
     </KeyboardAvoidingView>
   );
@@ -202,7 +240,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#555',
     minHeight: 100,
-    textAlignVertical: 'top', 
+    textAlignVertical: 'top',
     marginBottom: 20,
   },
   label: {
@@ -237,11 +275,42 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
-    overflow: 'hidden', 
+    overflow: 'hidden',
   },
   picker: {
     width: '100%',
   },
+
+  dateTimePickerWrapper: {
+        position: 'absolute', 
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0, 
+        justifyContent: 'center',
+        alignItems: 'center', 
+        backgroundColor: 'rgba(0,0,0,0.5)', 
+        zIndex: 1000, 
+    },
+    dateTimePickerStyle: {
+        backgroundColor: '#FFF', 
+        borderRadius: 10,
+        overflow: 'hidden',
+        width: '80%', 
+        maxWidth: 350, 
+    },
+    confirmButton: {
+        marginTop: 15,
+        backgroundColor: '#8C4DD5',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    confirmButtonText: {
+        color: '#FFF',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
 });
 
 export default AddEditTaskScreen;
