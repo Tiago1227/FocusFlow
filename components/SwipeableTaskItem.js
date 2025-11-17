@@ -59,7 +59,6 @@ const SwipeableTaskItem = ({
 
     return (
         <View style={styles.swipeableContainer}>
-            {/* Botões de Ação (que ficam por trás) */}
             <View style={styles.actionsContainer}>
                 <View style={{ flex: 1 }} />
                 <TouchableOpacity style={[styles.backButton, styles.starButton]} onPress={() => {
@@ -88,7 +87,6 @@ const SwipeableTaskItem = ({
                 activeOffsetX={[-10, 10]}
             >
                 <Animated.View style={[styles.animatedTaskWrapper, animatedStyle]}>
-                    {/* O TaskItem agora exibe os detalhes */}
                     <TaskItem task={task} onToggleComplete={handleToggleCompleteJS} />
                 </Animated.View>
             </PanGestureHandler>

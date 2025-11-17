@@ -1,263 +1,365 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
-import { Calendar } from 'react-native-calendars';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    Alert,
+    FlatList,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    ActivityIndicator,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient'; // Para o FAB
 import { useNavigation } from '@react-navigation/native';
+import { Calendar, LocaleConfig } from 'react-native-calendars';
+import { db } from '../config/firebaseConfig';
+import { useAuth } from '../context/AuthContext';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import QuickAddTask from '../components/QuickAddTask'; 
+import TaskItem from '../components/TaskItem'; 
 
-// Importe seus componentes de tarefa e modal
-import SwipeableTaskItem from '../components/SwipeableTaskItem'; // Reutilize o componente de tarefa
-import QuickAddTask from '../components/QuickAddTask'; // Reutilize o modal de adicionar tarefa
-
-// Assumindo que você tem um contexto de tarefas, ajuste conforme sua implementação
-// import { useTaskContext } from '../context/TaskContext'; 
-
-const { width } = Dimensions.get('window');
+LocaleConfig.locales['pt-br'] = {
+    monthNames: [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ],
+    monthNamesShort: ['Jan.', 'Fev.', 'Mar.', 'Abr.', 'Mai.', 'Jun.', 'Jul.', 'Ago.', 'Set.', 'Out.', 'Nov.', 'Dez.'],
+    dayNames: ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
+    dayNamesShort: ['Dom.', 'Seg.', 'Ter.', 'Qua.', 'Qui.', 'Sex.', 'Sáb.'],
+    today: 'Hoje'
+};
+LocaleConfig.defaultLocale = 'pt-br';
 
 const CalendarScreen = () => {
     const navigation = useNavigation();
-    // const { tasks, toggleComplete, editTask, starTask, deleteTask, addTask } = useTaskContext(); // Exemplo de uso do contexto
-    
-    // Simulação de tarefas (substitua pelo seu contexto real de tarefas)
-    const [tasks, setTasks] = useState([
-        { id: '1', title: 'Trabalho DAM', description: 'Revisar documentação', isCompleted: false, category: 'Trabalho', priority: 'Alta', dueDate: new Date('2025-08-17T10:00:00'), time: '10:00', isStarred: true },
-        { id: '2', title: 'Fazer compra', description: 'Comprar frutas e legumes', isCompleted: false, category: 'Pessoal', priority: 'Média', dueDate: new Date('2025-08-07T10:00:00'), time: '10:00', isStarred: false },
-        { id: '3', title: 'Finalizar relatório', description: 'Seção de conclusão', isCompleted: false, category: 'Trabalho', priority: 'Alta', dueDate: new Date('2025-08-17T10:00:00'), time: '10:00', isStarred: false },
-        { id: '4', title: 'Reunião com João', description: 'Projeto X', isCompleted: false, category: 'Trabalho', priority: 'Baixa', dueDate: new Date('2025-08-23T14:00:00'), time: '14:00', isStarred: false },
-        { id: '5', title: 'Academia', description: 'Treino de pernas', isCompleted: false, category: 'Pessoal', priority: 'Média', dueDate: new Date('2025-08-23T18:00:00'), time: '18:00', isStarred: false },
-    ]);
+    const { currentUser } = useAuth();
 
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // Dia atual como selecionado por padrão
+    const [selectedDate, setSelectedDate] = useState(null);
+    const [tasks, setTasks] = useState([]); 
+    const [tasksForSelectedDay, setTasksForSelectedDay] = useState([]);
     const [markedDates, setMarkedDates] = useState({});
     const [isQuickAddVisible, setIsQuickAddVisible] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [isTasksLoaded, setIsTasksLoaded] = useState(false); 
 
-    // --- Funções de manipulação de tarefas (apenas para simulação) ---
-    const handleToggleComplete = (id) => {
-        setTasks(prevTasks => prevTasks.map(task =>
-            task.id === id ? { ...task, isCompleted: !task.isCompleted } : task
-        ));
+    const getFormattedDate = (date) => {
+        if (!date) return '';
+        const year = date.getFullYear();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        return `${year}-${month}-${day}`;
     };
-    const handleEditTask = (task) => {
-        navigation.navigate('AddEditTask', { task });
-    };
-    const handleStarTask = (id) => {
-        setTasks(prevTasks => prevTasks.map(task =>
-            task.id === id ? { ...task, isStarred: !task.isStarred } : task
-        ));
-    };
-    const handleDeleteTask = (id) => {
-        setTasks(prevTasks => prevTasks.filter(task => task.id !== id));
-    };
-    // --- Fim das funções de manipulação de tarefas ---
 
-    // Efeito para processar as tarefas e gerar as datas marcadas
     useEffect(() => {
+        if (!currentUser) {
+            console.log("LOG CalendarScreen DEBUG: Usuário não logado, não carregando tarefas.");
+            setTasks([]);
+            setTasksForSelectedDay([]);
+            setMarkedDates({});
+            setIsTasksLoaded(false);
+            return;
+        }
+
+        const tasksCollectionRef = collection(db, 'tasks');
+        const q = query(
+            tasksCollectionRef,
+            where('userId', '==', currentUser.uid),
+            orderBy('dueDate', 'asc'), 
+            orderBy('time', 'asc')    
+        );
+
+        console.log("LOG CalendarScreen DEBUG: Iniciando onSnapshot para o usuário:", currentUser.uid);
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            console.log("LOG CalendarScreen DEBUG: Snapshot recebido. Docs:", snapshot.docs.length);
+            const fetchedTasks = snapshot.docs.map(doc => {
+                const data = doc.data();
+                const taskDueDate = data.dueDate
+                    ? (data.dueDate.toDate
+                        ? data.dueDate.toDate()
+                        : (typeof data.dueDate === 'string' && data.dueDate.match(/^\d{4}-\d{2}-\d{2}$/) 
+                            ? new Date(data.dueDate + 'T00:00:00') 
+                            : null))
+                    : null; 
+
+                if (taskDueDate && isNaN(taskDueDate.getTime())) {
+                    console.warn(`LOG CalendarScreen WARNING: dueDate inválido para tarefa ${doc.id}:`, data.dueDate);
+                    return { id: doc.id, ...data, dueDate: null };
+                }
+
+                return {
+                    id: doc.id,
+                    ...data,
+                    dueDate: taskDueDate,
+                };
+            });
+            console.log("LOG CalendarScreen DEBUG: Tarefas formatadas:", fetchedTasks);
+            setTasks(fetchedTasks);
+            setIsTasksLoaded(true); 
+        }, (error) => {
+            console.error("LOG CalendarScreen ERROR: Erro ao buscar tarefas no CalendarScreen:", error);
+            Alert.alert("Erro", "Não foi possível carregar as tarefas no calendário.");
+            setIsTasksLoaded(true); 
+        });
+
+        return () => {
+            unsubscribe();
+            console.log("LOG CalendarScreen DEBUG: onSnapshot unsubscribed.");
+        };
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (isTasksLoaded && !selectedDate) {
+            console.log("LOG CalendarScreen DEBUG: Tarefas carregadas, definindo selectedDate para hoje.");
+            setSelectedDate(new Date());
+        }
+    }, [isTasksLoaded, selectedDate]);
+
+
+    useEffect(() => {
+        if (!selectedDate) {
+            console.log("LOG CalendarScreen DEBUG: selectedDate ainda não definido, pulando atualização de markedDates.");
+            return;
+        }
+
         const newMarkedDates = {};
+        const tempTasksForSelectedDay = [];
+        const selectedDateString = getFormattedDate(selectedDate);
+        console.log("LOG CalendarScreen DEBUG: Data selecionada:", selectedDateString);
+
         tasks.forEach(task => {
             if (task.dueDate) {
-                const dateString = new Date(task.dueDate).toISOString().split('T')[0];
-                // Se já houver uma marcação para esta data, mantenha a bolinha
-                newMarkedDates[dateString] = {
-                    ...(newMarkedDates[dateString] || {}),
-                    marked: true,
-                    dotColor: '#8C4DD5', // Cor da bolinha para dias com tarefa
-                };
+                const taskDateString = getFormattedDate(task.dueDate);
+
+                if (!newMarkedDates[taskDateString]) {
+                    newMarkedDates[taskDateString] = { dots: [], selected: false, selectedColor: 'purple' };
+                }
+                if (!task.isCompleted) {
+                    newMarkedDates[taskDateString].dots.push({ color: '#8C4DD5', selectedDotColor: 'white' });
+                } else {
+                    newMarkedDates[taskDateString].dots.push({ color: '#ccc', selectedDotColor: 'white' });
+                }
+               
+                if (taskDateString === selectedDateString) {
+                    tempTasksForSelectedDay.push(task);
+                }
             }
         });
 
-        // Adiciona a marcação para a data selecionada
-        if (selectedDate) {
-            newMarkedDates[selectedDate] = {
-                ...(newMarkedDates[selectedDate] || {}), // Mantém marcações existentes
-                selected: true,
-                selectedColor: '#8C4DD5', // Cor do círculo de seleção
-                selectedTextColor: '#FFF', // Cor do texto do dia selecionado
-                dotColor: '#FFF', // Cor da bolinha quando o dia está selecionado
-            };
-        }
+        newMarkedDates[selectedDateString] = {
+            ...(newMarkedDates[selectedDateString] || {}), 
+            selected: true,
+            selectedColor: '#8C4DD5',
+            selectedTextColor: '#FFF',
+            dotColor: 'white',
+        };
+
+        tempTasksForSelectedDay.sort((a, b) => {
+            const timeA = a.time ? parseInt(a.time.replace(':', '')) : 9999; 
+            const timeB = b.time ? parseInt(b.time.replace(':', '')) : 9999;
+            return timeA - timeB;
+        });
+
         setMarkedDates(newMarkedDates);
-    }, [tasks, selectedDate]); // Recalcula quando tarefas ou selectedDate mudam
+        setTasksForSelectedDay(tempTasksForSelectedDay);
+        console.log(`LOG CalendarScreen DEBUG: Total de tarefas para o dia selecionado (${selectedDateString}):`, tempTasksForSelectedDay.length);
 
-    // Filtra as tarefas para o dia selecionado
-    const tasksForSelectedDate = tasks.filter(task => {
-        if (!task.dueDate) return false;
-        const taskDateString = new Date(task.dueDate).toISOString().split('T')[0];
-        return taskDateString === selectedDate;
-    }).sort((a, b) => (a.time || '').localeCompare(b.time || '')); // Ordena por hora
+    }, [tasks, selectedDate]);
 
-    const onDayPress = (day) => {
-        setSelectedDate(day.dateString);
+    const handleDayPress = (day) => {
+        console.log("LOG CalendarScreen DEBUG: Dia pressionado:", day.dateString);
+        setSelectedDate(new Date(day.year, day.month - 1, day.day));
     };
 
-    // Função para renderizar o cabeçalho personalizado do calendário
-    const renderCalendarHeader = (date) => {
-        const monthYear = new Date(date).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-        const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
-        return (
-            <View style={styles.calendarHeaderCustom}>
-                <TouchableOpacity style={styles.calendarHeaderMonthDropdown}>
-                    <Text style={styles.calendarHeaderMonthText}>{capitalizedMonthYear}</Text>
-                    <Feather name="chevron-down" size={16} color="#333" />
-                </TouchableOpacity>
-                <View style={styles.calendarHeaderArrows}>
-                    <TouchableOpacity onPress={() => console.log('Previous month')}> {/* Adicione lógica de navegação */}
-                        <Feather name="chevron-left" size={24} color="#333" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => console.log('Next month')}> {/* Adicione lógica de navegação */}
-                        <Feather name="chevron-right" size={24} color="#333" />
-                    </TouchableOpacity>
-                </View>
-            </View>
+    const handleToggleComplete = async (id) => {
+        if (!currentUser) return;
+        try {
+            const taskRef = doc(db, 'tasks', id);
+            const currentTask = tasks.find(t => t.id === id);
+            if (currentTask) {
+                await updateDoc(taskRef, {
+                    isCompleted: !currentTask.isCompleted,
+                });
+                console.log(`LOG CalendarScreen DEBUG: Tarefa ${id} marcada como concluída: ${!currentTask.isCompleted}`);
+            }
+        } catch (error) {
+            console.error("LOG CalendarScreen ERROR: Erro ao alternar conclusão da tarefa:", error);
+            Alert.alert("Erro", "Não foi possível atualizar a tarefa.");
+        }
+    };
+
+    const handleStarTask = async (id) => {
+        if (!currentUser) return;
+        try {
+            const taskRef = doc(db, 'tasks', id);
+            const currentTask = tasks.find(t => t.id === id);
+            if (currentTask) {
+                await updateDoc(taskRef, {
+                    isStarred: !currentTask.isStarred,
+                });
+                console.log(`LOG CalendarScreen DEBUG: Tarefa ${id} marcada como estrela: ${!currentTask.isStarred}`);
+            }
+        } catch (error) {
+            console.error("LOG CalendarScreen ERROR: Erro ao marcar/desmarcar tarefa como estrela:", error);
+            Alert.alert("Erro", "Não foi possível atualizar a tarefa.");
+        }
+    };
+
+    const handleEditTask = (task) => {
+        console.log("LOG CalendarScreen DEBUG: Editando tarefa:", task.id);
+        navigation.navigate('AddEditTask', { taskToEdit: task });
+    };
+
+    const handleDeleteTask = async (id) => {
+        if (!currentUser) return;
+        Alert.alert(
+            'Excluir Tarefa',
+            'Tem certeza que deseja excluir esta tarefa?',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Excluir',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deleteDoc(doc(db, 'tasks', id));
+                            console.log(`LOG CalendarScreen DEBUG: Tarefa ${id} excluída.`);
+                        } catch (error) {
+                            console.error("LOG CalendarScreen ERROR: Erro ao excluir tarefa:", error);
+                            Alert.alert("Erro", "Não foi possível excluir a tarefa.");
+                        }
+                    },
+                },
+            ]
         );
     };
 
+    const handleQuickAddTask = (task) => {
+        console.log("LOG CalendarScreen DEBUG: QuickAddTask salvou uma tarefa.");
+        setIsQuickAddVisible(false);
+        setRefreshing(true);
+    };
+
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        setTimeout(() => {
+            setRefreshing(false);
+            console.log("LOG CalendarScreen DEBUG: Refresh manual concluído.");
+        }, 1000);
+    }, []);
+
+    const handleMonthChange = (month) => {
+        console.log("LOG CalendarScreen DEBUG: Mês alterado para:", month.dateString);
+    };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.calendarContainer}>
-                <Calendar
-                    onDayPress={onDayPress}
-                    markedDates={markedDates}
-                    current={selectedDate} // Mantém o calendário focado no mês da data selecionada
-                    enableSwipeMonths={true}
-                    // Desabilita o cabeçalho padrão para usar o nosso customizado
-                    hideArrows={true} // Esconde as setas padrão
-                    hideExtraDays={true} // Não mostra dias de outros meses
-                    disableMonthChange={true} // Desabilita a mudança de mês por toque no header
-                    // Customização do cabeçalho
-                    renderHeader={(date) => {
-                        const monthYear = new Date(date).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-                        // Capitalize a primeira letra do mês
-                        const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
-
-                        return (
-                            <View style={styles.calendarHeaderCustom}>
-                                <TouchableOpacity onPress={() => console.log('Abre seletor de mês/ano')} style={styles.calendarHeaderMonthDropdown}>
-                                    <Text style={styles.calendarHeaderMonthText}>{capitalizedMonthYear}</Text>
-                                    <Feather name="chevron-down" size={16} color="#333" />
-                                </TouchableOpacity>
-                                <View style={styles.calendarHeaderArrows}>
-                                    <TouchableOpacity onPress={() => { /* Lógica para mês anterior */ }}>
-                                        <Feather name="chevron-left" size={24} color="#555" />
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => { /* Lógica para próximo mês */ }}>
-                                        <Feather name="chevron-right" size={24} color="#555" />
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        );
-                    }}
-                    theme={{
-                        backgroundColor: '#ffffff',
-                        calendarBackground: '#ffffff',
-                        textSectionTitleColor: '#555', // Cor dos dias da semana (S, M, T...)
-                        selectedDayBackgroundColor: '#8C4DD5', // Cor do fundo do dia selecionado
-                        selectedDayTextColor: '#ffffff',
-                        todayTextColor: '#8C4DD5', // Cor do número do dia atual
-                        dayTextColor: '#333',
-                        textDisabledColor: '#ccc', // Cor dos dias desabilitados (de outros meses)
-                        dotColor: '#8C4DD5', // Cor da bolinha de tarefa
-                        selectedDotColor: '#ffffff', // Cor da bolinha em dia selecionado
-                        arrowColor: '#8C4DD5', // Cor das setas de navegação
-                        monthTextColor: '#333', // Cor do nome do mês
-                        textDayFontWeight: '500',
-                        textMonthFontWeight: 'bold',
-                        textDayHeaderFontWeight: 'bold',
-                        textDayFontSize: 16,
-                        textMonthFontSize: 20,
-                        textDayHeaderFontSize: 14,
-                        'stylesheet.calendar.header': {
-                            week: {
-                                marginTop: 15,
-                                flexDirection: 'row',
-                                justifyContent: 'space-around',
-                                borderBottomWidth: 1,
-                                borderBottomColor: '#F0F0F0',
-                                paddingBottom: 10,
-                            },
-                            dayHeader: {
-                                color: '#555',
-                                fontWeight: 'bold',
-                            }
-                        },
-                    }}
-                    // Customização para esconder os dias de outros meses
-                    dayComponent={({ date, state, marking }) => {
-                        const isOtherMonth = state === 'disabled'; // 'disabled' para dias de outros meses
-                        return (
-                            <TouchableOpacity
-                                onPress={() => onDayPress(date)}
-                                style={[
-                                    styles.dayWrapper,
-                                    marking?.selected && styles.selectedDayWrapper,
-                                ]}
-                                disabled={isOtherMonth}
-                            >
-                                <Text
-                                    style={[
-                                        styles.dayText,
-                                        isOtherMonth && styles.otherMonthDayText,
-                                        marking?.selected && styles.selectedDayText,
-                                        state === 'today' && styles.todayText,
-                                    ]}
-                                >
-                                    {date.day}
-                                </Text>
-                                {marking?.marked && <View style={[styles.dot, marking?.dotColor && { backgroundColor: marking.dotColor }]} />}
-                            </TouchableOpacity>
-                        );
-                    }}
-                />
+        <View style={styles.container}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="arrow-left" size={24} color="#333" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Calendário</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Search')} style={styles.searchButton}>
+                    <Feather name="search" size={24} color="#333" />
+                </TouchableOpacity>
             </View>
 
-            {/* Lista de Tarefas para a Data Selecionada */}
-            <ScrollView style={styles.taskListScrollView} contentContainerStyle={styles.taskListContentContainer}>
-                {tasksForSelectedDate.length > 0 ? (
-                    tasksForSelectedDate.map(task => (
-                        <SwipeableTaskItem
-                            key={task.id}
-                            task={task}
-                            onToggleComplete={handleToggleComplete}
-                            onEdit={handleEditTask}
-                            onStar={handleStarTask}
-                            onDelete={handleDeleteTask}
-                        />
-                    ))
-                ) : (
-                    <View style={styles.emptyState}>
-                        <Feather name="check-circle" size={50} color="#CCC" />
-                        <Text style={styles.emptyStateText}>Nenhuma tarefa para este dia.</Text>
-                        <Text style={styles.emptyStateTextSmall}>Adicione uma nova tarefa ou selecione outra data.</Text>
+            <ScrollView
+                style={styles.contentArea}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+            >
+                {selectedDate && (
+                    <Calendar
+                        onDayPress={handleDayPress}
+                        markedDates={markedDates}
+                        markingType={'dots'}
+                        enableSwipeMonths={true}
+                        onMonthChange={handleMonthChange}
+                        current={getFormattedDate(selectedDate)} 
+                        theme={{
+                            calendarBackground: '#FFFFFF',
+                            textSectionTitleColor: '#b6c1cd',
+                            selectedDayBackgroundColor: '#8C4DD5',
+                            selectedDayTextColor: '#FFFFFF',
+                            todayTextColor: '#8C4DD5',
+                            dayTextColor: '#2d4150',
+                            textDisabledColor: '#d9e1e8',
+                            dotColor: '#8C4DD5',
+                            selectedDotColor: '#ffffff',
+                            arrowColor: '#8C4DD5',
+                            monthTextColor: '#2d4150',
+                            textDayFontFamily: 'System',
+                            textMonthFontFamily: 'System',
+                            textDayHeaderFontFamily: 'System',
+                            textDayFontWeight: '300',
+                            textMonthFontWeight: 'bold',
+                            textDayHeaderFontWeight: '300',
+                            textDayFontSize: 16,
+                            textMonthFontSize: 18,
+                            textDayHeaderFontSize: 13,
+                        }}
+                    />
+                )}
+                {!selectedDate && (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#8C4DD5" />
+                        <Text style={styles.loadingText}>Carregando calendário...</Text>
                     </View>
                 )}
+
+
+                <View style={styles.tasksContainer}>
+                    {selectedDate && ( 
+                        <Text style={styles.tasksHeader}>Tarefas para {selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
+                    )}
+                    {tasksForSelectedDay.length > 0 ? (
+                        <FlatList
+                            data={tasksForSelectedDay}
+                            keyExtractor={(item) => item.id}
+                            renderItem={({ item }) => (
+                                <View style={styles.taskItemWrapper}>
+                                    <TaskItem
+                                        task={item}
+                                        onToggleComplete={handleToggleComplete}
+                                        onEdit={handleEditTask}
+                                        onStar={handleStarTask}
+                                        onDelete={handleDeleteTask}
+                                    />
+                                </View>
+                            )}
+                            scrollEnabled={false}
+                        />
+                    ) : (
+                        selectedDate && (
+                            <View style={styles.emptyState}>
+                                <Feather name="inbox" size={50} color="#CCC" />
+                                <Text style={styles.emptyStateText}>Nenhuma tarefa para este dia.</Text>
+                            </View>
+                        )
+                    )}
+                </View>
             </ScrollView>
 
-            {/* Botão Flutuante de Adicionar */}
             <TouchableOpacity
                 style={styles.fabContainer}
                 onPress={() => setIsQuickAddVisible(true)}
             >
-                <LinearGradient
-                    colors={['#8C4DD5', '#3CB0E1']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.fabGradient}
-                >
+                <View style={styles.fabGradient}>
                     <Feather name="plus" size={30} color="#FFF" />
-                </LinearGradient>
+                </View>
             </TouchableOpacity>
 
-            {/* Modal de Adicionar Tarefa Rápida */}
+            {/* Modal de QuickAddTask */}
             <QuickAddTask
                 visible={isQuickAddVisible}
                 onClose={() => setIsQuickAddVisible(false)}
-                onAddTask={(newTask) => {
-                    // Lógica para adicionar a nova tarefa (usando seu contexto ou estado)
-                    setTasks(prevTasks => [...prevTasks, { ...newTask, id: String(prevTasks.length + 1) }]); // Exemplo
-                    setIsQuickAddVisible(false);
-                }}
+                onSaveTask={handleQuickAddTask}
             />
-        </SafeAreaView>
+        </View>
     );
 };
 
@@ -266,118 +368,93 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#F7F9FC',
     },
-    calendarContainer: {
-        backgroundColor: '#FFFFFF',
-        marginHorizontal: 15,
-        borderRadius: 15,
-        marginTop: 20,
-        marginBottom: 10,
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingTop: Platform.OS === 'android' ? 40 : 60,
+        paddingHorizontal: 20,
+        paddingBottom: 20,
+        backgroundColor: '#FFF',
+        borderBottomLeftRadius: 30,
+        borderBottomRightRadius: 30,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.05,
         shadowRadius: 5,
-        elevation: 5,
-        overflow: 'hidden', // Importante para garantir que o shadow e border-radius funcionem bem
+        elevation: 3,
     },
-    // Estilos para o cabeçalho personalizado do calendário
-    calendarHeaderCustom: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 15,
-        paddingTop: 10,
-        paddingBottom: 5,
+    backButton: {
+        padding: 5,
     },
-    calendarHeaderMonthDropdown: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    headerTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#333',
     },
-    calendarHeaderMonthText: {
+    searchButton: {
+        padding: 5,
+    },
+    contentArea: {
+        flex: 1,
+        paddingBottom: 70, 
+    },
+    tasksContainer: {
+        marginTop: 20,
+        paddingHorizontal: 20,
+    },
+    tasksHeader: {
         fontSize: 18,
         fontWeight: 'bold',
         color: '#333',
-        marginRight: 5,
+        marginBottom: 15,
     },
-    calendarHeaderArrows: {
-        flexDirection: 'row',
-        width: 70, // Espaço fixo para as setas
-        justifyContent: 'space-between',
-    },
-    // Estilos para os dias do calendário (renderização personalizada)
-    dayWrapper: {
-        width: width / 7 - 10, // Largura para cada dia, ajustando margens
-        height: width / 7 - 10,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderRadius: 99, // Para o formato circular do dia selecionado
-        margin: 5, // Espaçamento entre os dias
-    },
-    selectedDayWrapper: {
-        backgroundColor: '#8C4DD5', // Cor de fundo quando selecionado
-    },
-    dayText: {
-        fontSize: 16,
-        color: '#333',
-        fontWeight: '500',
-    },
-    otherMonthDayText: {
-        color: '#ccc', // Cor para dias de outros meses
-    },
-    selectedDayText: {
-        color: '#FFF', // Cor do texto do dia selecionado
-    },
-    todayText: {
-        color: '#8C4DD5', // Cor do número do dia de hoje
-        fontWeight: 'bold',
-    },
-    dot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        position: 'absolute',
-        bottom: 5, // Posição da bolinha
-    },
-    taskListScrollView: {
-        flex: 1,
-        marginTop: 10,
-    },
-    taskListContentContainer: {
-        paddingHorizontal: 15,
-        paddingBottom: 100, // Espaço para o FAB
+    taskItemWrapper: {
+        marginBottom: 10,
+        borderRadius: 15,
+        overflow: 'hidden', 
     },
     emptyState: {
+        flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 50,
-        padding: 20,
+        paddingVertical: 50,
     },
     emptyStateText: {
-        fontSize: 18,
-        color: '#777',
-        marginTop: 15,
-        fontWeight: 'bold',
-    },
-    emptyStateTextSmall: {
-        fontSize: 14,
+        fontSize: 16,
         color: '#999',
-        marginTop: 5,
+        marginTop: 10,
     },
     fabContainer: {
         position: 'absolute',
-        bottom: 30,
-        right: 30,
-    },
-    fabGradient: {
+        bottom: 10,
+        right: 25,
         width: 60,
         height: 60,
         borderRadius: 30,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
+        overflow: 'hidden',
+        shadowColor: '#8C4DD5',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
-        shadowRadius: 4.65,
+        shadowRadius: 5,
         elevation: 8,
+    },
+    fabGradient: { 
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#8C4DD5', 
+    },
+    loadingContainer: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 50,
+        minHeight: 200, 
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#555',
     },
 });
 

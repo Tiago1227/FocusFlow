@@ -15,7 +15,7 @@ import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../config/firebaseConfig'; 
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; 
+import { collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore'; 
 import { useAuth } from '../context/AuthContext'; 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker'; 
@@ -112,7 +112,7 @@ const QuickAddTask = ({ visible, onClose, onSaveTask }) => {
         category: category,
         priority: priorities[currentPriorityIndex].value, 
         time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        dueDate: date.toISOString().slice(0, 10),
+        dueDate: Timestamp.fromDate(date),
         isCompleted: false,
         isStarred: false,
         createdAt: serverTimestamp(),

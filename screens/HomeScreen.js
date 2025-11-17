@@ -211,10 +211,7 @@ const HomeScreen = () => {
                         )}
                     </Text>
                     <View style={styles.headerIcons}>
-                        <TouchableOpacity onPress={() => Alert.alert('Ação', 'Buscar tarefas')}>
-                            <Feather name="search" size={24} color="#555" style={styles.headerIcon} />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => navigation.navigate('Perfil')}>
+                        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
                             <Feather name="user" size={24} color="#555" style={styles.headerIcon} />
                         </TouchableOpacity>
                     </View>

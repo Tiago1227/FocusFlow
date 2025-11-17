@@ -10,7 +10,8 @@ import HomeScreen from '../screens/HomeScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import AddEditTaskScreen from '../screens/AddEditTaskScreen';
-import CalendarScreen from '../screens/CalendarScreen'
+import CalendarScreen from '../screens/CalendarScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 
 import DrawerContent from './DrawerContent';
 
@@ -23,6 +24,7 @@ const HomeStack = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="AddEditTask" component={AddEditTaskScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };

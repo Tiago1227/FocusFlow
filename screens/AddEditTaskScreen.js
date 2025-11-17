@@ -79,7 +79,7 @@ const AddEditTaskScreen = () => {
         description,
         category,
         time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        dueDate: date.toISOString().slice(0, 10),
+        dueDate: Timestamp.fromDate(date),
         isCompleted: isEditMode ? taskToEdit.isCompleted : false,
         isStarred: isEditMode ? taskToEdit.isStarred : false,
         userId: currentUser.uid, 
@@ -173,7 +173,7 @@ const AddEditTaskScreen = () => {
       </ScrollView>
 
       {showPicker && (
-        <View style={styles.dateTimePickerWrapper}> {/* NOVO WRAPPER AQUI */}
+        <View style={styles.dateTimePickerWrapper}> 
           <DateTimePicker
             testID="dateTimePicker"
             value={date}
